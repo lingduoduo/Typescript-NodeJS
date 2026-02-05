@@ -1,0 +1,34 @@
+{
+  "name": "kafka-ts-prototype",
+  "version": "1.0.0",
+  "description": "KafkaJS + TypeScript local prototype",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "producer": "ts-node producer.ts",
+    "consumer": "ts-node consumer.ts",
+    "dev:producer": "nodemon --watch . --ext ts --exec ts-node producer.ts",
+    "dev:consumer": "nodemon --watch . --ext ts --exec ts-node consumer.ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "kafka",
+    "kafkajs",
+    "typescript",
+    "event-driven"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.2",
+    "nodemon": "^3.1.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}
