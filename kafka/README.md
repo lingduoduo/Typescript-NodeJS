@@ -15,14 +15,26 @@ Last up we have our producers and consumers. **Producers** are the ones who writ
 Importantly, you can use Kafka as either a message queue or a stream. Frankly, the distinction here is minor. The only meaningful difference is with how consumers interact with the data. In a message queue, consumers read messages from the queue and then acknowledge that they have processed the message. In a stream, consumers read messages from the stream and then process them, but they don't acknowledge that they have processed the message. This allows for more complex processing of the data.
 
 ```
-docker run -d --name kafka \
-  -p 9092:9092 \
-  apache/kafka:4.1.1
+docker run -d --name kafka -p 9092:9092 apache/kafka:4.1.1
+
 docker logs -f kafka
 
 brew install kafka
-kafka-topics --version
 
+kafka-topics --version
+```
+
+### Deep Dive Under the Hood
+
+1. Producer create and publishes a message
+
+When a message is published to a Kafka topic, Kafka first determines the appropriate partition for the message. This partition selection is critical because it influences the distribution of data across the cluster. This is a two-step process:
+
+- Partition Determination: Kafka uses a partitioning algorithm that hashes the message key to assign the message to a specific partition. If the message does not have a key, Kafka can either round-robin the message to partitions or follow another partitioning logic defined in the producer configuration. This ensures that messages with the same key always go to the same partition, preserving order at the partition level.
+
+- Broker Assignment: Once the partition is determined, Kafka then identifies which broker holds that particular partition. The mapping of partitions to specific brokers is managed by the Kafka cluster metadata, which is maintained by the Kafka controller (a role within the broker cluster). The producer uses this metadata to send the message directly to the broker that hosts the target partition.
+
+```
 kafka-topics \
   --bootstrap-server localhost:9092 \
   --create \
@@ -38,7 +50,35 @@ kafka-console-producer \
   --property parse.key=true \
   --property key.separator=:
 
+```
 
+2. Kafka assigns the message to the correct topic, broker and partition
+
+![Partition diagram](partition.png)
+
+Each partition in Kafka functions essentially as an append-only log file. Messages are sequentially added to the end of this log, which is why Kafka is commonly described as a distributed commit log. This append-only design is central to Kafka’s architecture, providing several important benefits:
+- Immutability: Once written, messages in a partition cannot be altered or deleted. This immutability is crucial for Kafka’s performance and reliability. It simplifies replication, speeds up recovery processes, and avoids consistency issues common in systems where data can be changed.
+- Efficiency: By restricting operations to appending data at the end of the log, Kafka minimizes disk seek times, which are a major bottleneck in many storage systems.
+- Scalability: The simplicity of the append-only log mechanism facilitates horizontal scaling. More partitions can be added and distributed across a cluster of brokers to handle increasing loads, and each partition can be replicated across multiple brokers to enhance fault tolerance.
+
+3. Message appended to partition via append only log file
+
+Partition A, B...  -> Msg A, B... -> Offsets
+
+Each message in a Kafka partition is assigned a unique offset, which is a sequential identifier indicating the message’s position in the partition. This offset is used by consumers to track their progress in reading messages from the topic. As consumers read messages, they maintain their current offset and periodically commit this offset back to Kafka. This way, they can resume reading from where they left off in case of failure or restart.
+
+Once a message is published to the designated partition, Kafka ensures its durability and availability through a robust replication mechanism. Kafka employs a leader-follower model for replication, which works as follows:
+
+- Leader Replica Assignment: Each partition has a designated leader replica, which resides on a broker. This leader replica is responsible for handling all read and write requests for the partition. The assignment of the leader replica is managed centrally by the cluster controller, which ensures that each partition’s leader replica is effectively distributed across the cluster to balance the load.
+- Follower Replication: Alongside the leader replica, several follower replicas exist for each partition, residing on different brokers. These followers do not handle direct client requests; instead, they passively replicate the data from the leader replica. By replicating the messages received by the leader replica, these followers act as backups, ready to take over should the leader replica fail.
+- Synchronization and Consistency: Followers continuously sync with the leader replica to ensure they have the latest set of messages appended to the partition log. This synchronization is crucial for maintaining consistency across the cluster. If the leader replica fails, one of the follower replicas that has been fully synced can be quickly promoted to be the new leader, minimizing downtime and data loss.
+- Controller's Role in Replication: The controller within the Kafka cluster manages this replication process. It monitors the health of all brokers and manages the leadership and replication dynamics. When a broker fails, the controller reassigns the leader role to one of the in-sync follower replicas to ensure continued availability of the partition.
+
+4. Consumers read next message based on an offset
+
+consumers read messages from Kafka topics using a pull-based model. Unlike some messaging systems that push data to consumers, Kafka consumers actively poll the broker for new messages at intervals they control. As explained by Apache Kafka's official documentation, this pull approach was a deliberate design choice that provides several advantages: it lets consumers control their consumption rate, simplifies failure handling, prevents overwhelming slow consumers, and enables efficient batching.
+
+```
 kafka-console-consumer \
   --bootstrap-server localhost:9092 \
   --topic my_topic \
@@ -49,7 +89,4 @@ kafka-console-consumer \
 npm install kafkajs
 
 npx ts-node producer.ts
-
-
 ```
-
